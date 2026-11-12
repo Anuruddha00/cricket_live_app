@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scorer</title>
+<style>
+  :root { --ink:#0f1f1a; --panel:#18302a; --line:#2b4a41; --grass:#3fa66b; --amber:#f2b134; --red:#e5484d; --text:#eef3ef; --dim:#9db3a9; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ink); color:var(--text); font:16px/1.4 system-ui, sans-serif; padding:12px; max-width:560px; margin-inline:auto; }
+  button { font:inherit; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 8px; cursor:pointer; }
+  button:active { background:var(--line); }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline:3px solid var(--amber); outline-offset:2px; }
+  .score { background:var(--panel); border-radius:14px; padding:14px 16px; margin-bottom:12px; }
+  .score b { font-size:2.4rem; letter-spacing:-.02em; }
+  .dim { color:var(--dim); font-size:.9rem; }
+  .over { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:30px; }
+  .over span { background:var(--ink); border-radius:999px; min-width:30px; padding:3px 8px; text-align:center; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:8px; }
+  .runs button { font-size:1.5rem; font-weight:700; padding:20px 0; }
+  .tog button.on { background:var(--amber); color:#241a00; border-color:var(--amber); font-weight:700; }
+  .tog button.w.on { background:var(--red); color:#fff; border-color:var(--red); }
+  .row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:8px; }
+  #pending { margin-bottom:8px; color:var(--amber); min-height:1.4em; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:14px; width:calc(100% - 24px); max-width:520px; padding:16px; max-height:90vh; overflow:auto; }
+  dialog::backdrop { background:rgba(0,0,0,.65); }
+  h3 { margin:0 0 10px; } h4 { margin:16px 0 6px; color:var(--amber); }
+  label { display:block; margin:8px 0 2px; color:var(--dim); font-size:.85rem; }
+  input, select, textarea { width:100%; background:var(--ink); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; }
+  input[type=color] { padding:2px; height:42px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .pick { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+  .act { display:flex; gap:8px; margin-top:16px; } .act button { flex:1; }
+  .primary { background:var(--grass); color:#06140d; border-color:var(--grass); font-weight:700; }
+</style>
+</head>
+<body>
+<div class="dim" id="tn" style="margin-bottom:8px"></div>
+<div class="score" id="score">No match yet. Press "New match".</div>
+<div id="pending"></div>
+
+<div class="grid tog" id="tog">
+  <button data-ex="wd">Wide</button><button data-ex="nb">No ball</button>
+  <button data-ex="b">Bye</button><button data-ex="lb">Leg bye</button>
+</div>
+<div class="grid tog"><button class="w" id="wk" style="grid-column:span 2">Wicket</button><button id="fs" style="grid-column:span 2">1 run, no swap</button></div>
+<div class="grid runs" id="runs">
+  <button data-r="0">0</button><button data-r="1">1</button><button data-r="2">2</button><button data-r="3">3</button>
+  <button data-r="4">4</button><button data-r="5">5</button><button data-r="6">6</button><button id="undo">Undo</button>
+</div>
+<p class="dim">With Wide or No ball selected, the number is the extra runs run (0 = just the penalty run). The 1 run, no swap button scores 1 run and keeps the same batter on strike.</p>
+
+<div class="row"><button id="newbat">New batter</button><button id="newbowl">New bowler</button><button id="swap">Swap strike</button></div>
+<div class="row"><button id="edit">Match details</button><button id="endinn">End innings</button><button id="newmatch">New match</button></div>
+<div class="row"><button id="teams">Teams</button><button id="fin" disabled>Save match</button><button id="rep">Report</button></div>
+<div class="row"><button id="newtour" style="grid-column:1/-1">Start new tournament</button></div>
+
+<!-- One popup for all match details -->
+<dialog id="dlg">
+  <h3 id="dt">Match details</h3>
+  <div id="s_new" class="two">
+    <div><label for="f_a">Team A</label><select id="f_a"></select></div>
+    <div><label for="f_b">Team B</label><select id="f_b"></select></div>
+    <div><label for="f_p">Balls per over</label><input id="f_p" type="number" min="1"></div>
+    <div><label for="f_f">Batting first</label><select id="f_f"></select></div>
+  </div>
+  <div id="s_ov"><label for="f_o">Overs per innings</label><input id="f_o" type="number" min="1"></div>
+  <h4 id="ph">Opening players</h4>
+  <label for="f_st">Batter on strike</label><select id="f_st"></select>
+  <label for="f_non">Batter at other end</label><select id="f_non"></select>
+  <label for="f_bw">Bowler</label><select id="f_bw"></select>
+  <p class="dim" id="note"></p>
+  <div class="act"><button id="cancel">Cancel</button><button id="save" class="primary">Save</button></div>
+</dialog>
+
+<!-- Team registration popup -->
+<dialog id="tm">
+  <h3>Team registration</h3>
+  <label for="t_sel">Team</label><select id="t_sel"></select>
+  <div class="two"><div><label for="t_name">Team name</label><input id="t_name"></div><div><label for="t_col">Colour</label><input id="t_col" type="color"></div></div>
+  <label for="t_pl">Players (one name per line)</label><textarea id="t_pl" rows="10"></textarea>
+  <div class="act"><button id="t_del">Delete</button><button id="t_close">Close</button><button id="t_save" class="primary">Save team</button></div>
+</dialog>
+
+<!-- Save finished match -->
+<dialog id="fm">
+  <h3>Save match to tournament</h3>
+  <label for="f_motm">Man of the match</label><select id="f_motm"></select>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:14px"><input id="f_final" type="checkbox" style="width:auto"> This is the final match</label>
+  <p class="dim">The list starts with the top performer (1 point per run, 25 per wicket). Pick someone else if you prefer.</p>
+  <div class="act"><button id="f_cancel">Cancel</button><button id="f_save" class="primary">Save</button></div>
+</dialog>
+
+<!-- Tap-to-pick popup -->
+<dialog id="pk">
+  <h3 id="pkt"></h3>
+  <div class="pick" id="pkb"></div>
+  <div id="pkfree"><label for="pki">Or type a name</label><input id="pki"></div>
+  <div class="act"><button id="pkx">Cancel</button><button id="pkok" class="primary">Use name</button></div>
+</dialog>
+
+<script src="core.js"></script>
+<script>
+let S = null, ex = null, wk = false, fs = false, mode = "new";
+const $ = id => document.getElementById(id);
+const v = id => $(id).value.trim();
+const lines = s => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
+const sqOf = t => (S && S.sq && S.sq[t]) || [];
+const batTeam = i => (S.first + i) % 2, bowlTeam = i => (S.first + i + 1) % 2;
+const needBowl = c => c.nb && c.balls < S.overs * BPO;
+const DISM = ["Bowled / Caught / LBW / Stumped", "Run out (batter on strike)", "Run out (other batter)"];
+const norm = s => { if (s) s.inns.forEach(i => i.ev = i.ev || []); return s; };
+
+function render() {
+  if (!S) return;
+  const m = summary(S), c = m.c;
+  const st = n => n ? n + " " + c.bat[n].r + "(" + c.bat[n].b + ")" : "-";
+  const bo = c.bw && c.bowl[c.bw];
+  const bw = bo ? c.bw + " " + overs(bo.b) + "-" + bo.r + "-" + bo.w : (c.bw || "-");
+  $("score").innerHTML =
+    "<div class='dim'>" + m.team + " batting, innings " + (S.cur + 1) + "</div>" +
+    "<b>" + c.runs + "/" + c.w + "</b> <span class='dim'>(" + overs(c.balls) + " / " + S.overs + " ov)</span>" +
+    "<div class='dim'>" + (m.target ? "Target " + m.target + " · need " + m.need + " from " + m.left + " balls" : "Run rate " + m.crr) + "</div>" +
+    "<div>On strike: " + st(c.st) + "<br>Other end: " + st(c.non) + "<br>Bowling: " + bw + "</div>" +
+    "<div class='over'>" + c.over.map(b => "<span>" + b + "</span>").join("") + "</div>" +
+    (m.result ? "<div style='color:var(--amber);margin-top:8px'>" + m.result + "</div>" : "");
+  document.querySelectorAll("#tog [data-ex]").forEach(b => b.classList.toggle("on", b.dataset.ex === ex));
+  $("wk").classList.toggle("on", wk);
+  const dis = m.done;
+  document.querySelectorAll("#tog button, #runs button, #wk, #fs").forEach(b => { if (b.id !== "undo") b.disabled = dis; });
+  $("endinn").classList.toggle("primary", dis && S.cur === 0);
+  $("fin").disabled = !(dis && S.cur === 1); $("fin").textContent = S.archId ? "Update saved" : "Save match";
+  $("fin").classList.toggle("primary", !$("fin").disabled && !S.archId);
+  $("pending").textContent = dis ? (S.cur === 0 ? "Innings complete. Press End innings to start the second innings." : "Match complete.") : ((!c.st || !c.non) && c.w < m.maxW ? "A new batter is needed." : needBowl(c) ? "Over complete: choose the next bowler." : "");
+}
+
+function commit(e) { S.inns[S.cur].ev.push(e); save(S); render(); }
+
+// ---- tap-to-pick popup ----
+function pick(title, names, cb, free = true) {
+  $("pkt").textContent = title; $("pkb").innerHTML = ""; $("pki").value = ""; $("pkfree").hidden = !free; $("pkok").hidden = !free;
+  names.forEach(n => { const b = document.createElement("button"); b.textContent = n; b.onclick = () => { $("pk").close(); cb(n); }; $("pkb").appendChild(b); });
+  $("pkok").onclick = () => { const n = v("pki"); if (n) { $("pk").close(); cb(n); } };
+  $("pkx").onclick = () => $("pk").close();
+  $("pk").showModal();
+}
+function newBat() {
+  const c = calc(S.inns[S.cur]);
+  pick("New batter", sqOf(batTeam(S.cur)).filter(n => !c.bat[n]), n => { commit({ t: "bat", name: n }); if (needBowl(calc(S.inns[S.cur]))) newBowl(); });
+}
+function newBowl() { pick("Next bowler", sqOf(bowlTeam(S.cur)), n => commit({ t: "bowl", name: n })); }
+
+function ball(runs, flip) {
+  if (!S || summary(S).done) return;
+  if (wk) pick("How was the batter out?", DISM, n => { const k = DISM.indexOf(n); done(runs, k > 0, k === 2 ? "non" : "st", flip); }, false);
+  else done(runs, false, "st", flip);
+}
+function done(runs, ro, out, flip) {
+  commit({ t: "ball", runs, ex: ex || null, w: wk, ro, out, fs: !!flip }); ex = null; wk = false;
+  const c = calc(S.inns[S.cur]);
+  const m = summary(S);
+  if (m.done) return render();
+  if ((!c.st || !c.non) && c.w < m.maxW) newBat(); else if (needBowl(c)) newBowl();
+  render();
+}
+
+// ---- team registration (saved on this device and in Firebase) ----
+const TK = "cricket_teams"; let TEAMS = [];
+const esc = x => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const team = n => TEAMS.find(t => t.name === n);
+async function loadTeams() {
+  let t = null;
+  if (DB_URL) { try { t = await (await fetch(DB_URL + "/teams.json")).json(); } catch (e) {} }
+  if (!t) { const l = localStorage.getItem(TK); t = l ? JSON.parse(l) : []; }
+  TEAMS = (Array.isArray(t) ? t : Object.values(t)).filter(Boolean).map(x => ({ name: x.name, color: x.color || "#3fa66b", players: x.players || [] }));
+}
+async function saveTeams() {
+  localStorage.setItem(TK, JSON.stringify(TEAMS));
+  if (DB_URL) { try { await fetch(DB_URL + "/teams.json", { method: "PUT", body: JSON.stringify(TEAMS) }); } catch (e) {} }
+}
+function teamForm() {
+  const t = team($("t_sel").value);
+  $("t_name").value = t ? t.name : ""; $("t_col").value = t ? t.color : "#3fa66b"; $("t_pl").value = t ? t.players.join("\n") : ""; $("t_del").hidden = !t;
+}
+function openTeams(sel) {
+  $("t_sel").innerHTML = "<option value=''>+ New team</option>" + TEAMS.map(t => "<option>" + esc(t.name) + "</option>").join("");
+  $("t_sel").value = sel || ""; teamForm();
+  if (!$("tm").open) $("tm").showModal();
+}
+$("t_sel").onchange = teamForm;
+$("t_save").onclick = async () => {
+  const name = v("t_name"); if (!name) return alert("Enter a team name.");
+  const old = $("t_sel").value, t = { name, color: $("t_col").value, players: lines($("t_pl").value) };
+  if (name !== old && team(name)) return alert("A team with that name already exists.");
+  const i = TEAMS.findIndex(x => x.name === old);
+  if (i >= 0) TEAMS[i] = t; else TEAMS.push(t);
+  await saveTeams();
+  if (S) {  // keep a running match in step with the edited team
+    S.sq = S.sq || [[], []];
+    [0, 1].forEach(k => { if ((k ? S.b : S.a) === old) { S.sq[k] = t.players; if (k) { S.b = name; S.cb = t.color; } else { S.a = name; S.ca = t.color; } } });
+    save(S); render();
+  }
+  openTeams(name);
+};
+$("t_del").onclick = async () => {
+  const n = $("t_sel").value; if (!n || !confirm("Delete team " + n + "?")) return;
+  TEAMS = TEAMS.filter(t => t.name !== n); await saveTeams(); openTeams("");
+};
+$("t_close").onclick = () => $("tm").close();
+$("teams").onclick = () => openTeams("");
+
+// ---- match details popup (new match / edit / second innings) ----
+function rename(o, n) {
+  if (!o || !n || o === n) return;
+  S.inns.forEach(i => { ["striker", "non", "bowler"].forEach(k => { if (i[k] === o) i[k] = n; }); (i.ev || []).forEach(e => { if (e.name === o) e.name = n; }); });
+}
+function fillSel(id, names, sel, blank) {
+  const list = names.slice(); if (sel && !list.includes(sel)) list.push(sel);
+  $(id).innerHTML = (blank ? "<option value=''>Select...</option>" : "") + list.map(n => "<option>" + esc(n) + "</option>").join("");
+  $(id).value = sel || (blank ? "" : list[0] || "");
+}
+function squads() {
+  if (mode === "new") {
+    const A = team(v("f_a")) || { players: [] }, B = team(v("f_b")) || { players: [] };
+    return +$("f_f").value ? [B.players, A.players] : [A.players, B.players];
+  }
+  const i = mode === "inn2" ? 1 : S.cur;
+  return [sqOf(batTeam(i)), sqOf(bowlTeam(i))];
+}
+function refreshPl(k) {
+  k = k || {}; const [bat, bowl] = squads();
+  fillSel("f_st", bat, k.st, true); fillSel("f_non", bat, k.non, true); fillSel("f_bw", bowl, k.bw, true);
+}
+function refreshTeams() {
+  $("f_f").innerHTML = "<option value='0'>" + esc(v("f_a")) + "</option><option value='1'>" + esc(v("f_b")) + "</option>";
+  refreshPl();
+}
+function openForm(m) {
+  mode = m;
+  if (m === "new") {
+    if (TEAMS.length < 2) { alert("Register at least two teams first."); return openTeams(""); }
+    const names = TEAMS.map(t => t.name);
+    fillSel("f_a", names, names[0]); fillSel("f_b", names, names[1]);
+    $("f_p").value = 6; $("f_o").value = 20; refreshTeams();
+  } else if (m === "edit") {
+    const c = calc(S.inns[S.cur]); $("f_o").value = S.overs; refreshPl({ st: c.st, non: c.non, bw: c.bw });
+  } else refreshPl();
+  $("s_new").hidden = m !== "new"; $("s_ov").hidden = m === "inn2";
+  $("dt").textContent = m === "new" ? "New match" : m === "inn2" ? "Second innings" : "Match details";
+  $("ph").textContent = m === "edit" ? "Current players" : "Opening players";
+  $("note").textContent = m === "edit" ? "Pick a different name to correct a mistake. It changes everywhere, including past balls." : "";
+  $("dlg").showModal();
+}
+$("f_a").onchange = $("f_b").onchange = refreshTeams;
+$("f_f").onchange = () => refreshPl();
+$("save").onclick = () => {
+  const st = v("f_st"), non = v("f_non"), bw = v("f_bw");
+  if (mode !== "edit" && !(st && non && bw)) return alert("Choose both batters and the bowler.");
+  if (st && non && st === non) return alert("The two batters must be different.");
+  if (mode === "inn2") { S.inns[1] = { striker: st, non, bowler: bw, ev: [] }; S.cur = 1; }
+  else if (mode === "new") {
+    const A = team(v("f_a")), B = team(v("f_b"));
+    if (A === B) return alert("Choose two different teams.");
+    S = { a: A.name, b: B.name, ca: A.color, cb: B.color, sq: [A.players, B.players], overs: parseInt(v("f_o")) || 20, bpo: parseInt(v("f_p")) || 6, first: +$("f_f").value, cur: 0, inns: [{ striker: st, non, bowler: bw, ev: [] }, { ev: [] }] };
+    ex = null; wk = false; fs = false;
+  } else {
+    S.overs = parseInt(v("f_o")) || S.overs;
+    const c = calc(S.inns[S.cur]);
+    if (c.st) rename(c.st, st); if (c.non) rename(c.non, non); if (c.bw) rename(c.bw, bw);
+  }
+  setBpo(S); $("dlg").close(); save(S); render();
+};
+$("cancel").onclick = () => $("dlg").close();
+
+document.querySelectorAll("#tog [data-ex]").forEach(b => b.onclick = () => { ex = ex === b.dataset.ex ? null : b.dataset.ex; render(); });
+$("wk").onclick = () => { wk = !wk; render(); };
+$("fs").onclick = () => ball(1, true);
+document.querySelectorAll("#runs [data-r]").forEach(b => b.onclick = () => ball(+b.dataset.r));
+$("undo").onclick = () => { if (S && S.inns[S.cur].ev.length) { S.inns[S.cur].ev.pop(); save(S); render(); } };
+$("newbat").onclick = () => { if (S) newBat(); };
+$("newbowl").onclick = () => { if (S) newBowl(); };
+$("swap").onclick = () => { if (S) commit({ t: "swap" }); };
+$("edit").onclick = () => { if (S) openForm("edit"); };
+$("endinn").onclick = () => { if (S && S.cur === 0 && confirm("End the first innings and start the chase?")) openForm("inn2"); };
+$("newmatch").onclick = () => {
+  const unsaved = S && S.cur === 1 && summary(S).done && !S.archId;
+  if (!S || confirm(unsaved ? "This finished match has NOT been saved to the tournament. Start a new match anyway?" : "Start a new match? This clears the current one.")) openForm("new");
+};
+
+// ---- save a finished match to the tournament archive ----
+const MK = "cricket_matches"; let MST = [], CUR = "t0";
+async function showTour() {
+  CUR = await getCurTour();
+  const t = (await getTours()).find(x => x.id === CUR);
+  $("tn").textContent = "Tournament: " + (t ? t.name : "Cricket Tournament");
+}
+$("newtour").onclick = async () => {
+  const n = (prompt("Name of the new tournament") || "").trim(); if (!n) return;
+  const unsaved = S && S.cur === 1 && summary(S).done && !S.archId;
+  if (!confirm("Start \"" + n + "\"?\n\n" + (unsaved ? "WARNING: the finished match on screen has not been saved.\n\n" : "") +
+    "The current match on the scorer and overlay will be cleared. Matches already saved stay in the previous tournament's report.")) return;
+  const clearTeams = confirm("Also clear all registered teams and squads?\n\nOK = clear them (register new teams)\nCancel = keep the teams");
+  await startTour(n); await resetDetails(clearTeams);
+  if (clearTeams) TEAMS = [];
+  S = null; ex = null; wk = false; fs = false;
+  $("score").textContent = 'No match yet. Press "New match".'; $("pending").textContent = "";
+  $("fin").disabled = true; $("fin").textContent = "Save match"; $("fin").classList.remove("primary"); $("endinn").classList.remove("primary");
+  document.querySelectorAll("#tog button, #runs button, #wk, #fs").forEach(b => { b.disabled = false; });
+  await showTour();
+};
+function openFin() {
+  MST = Object.values(matchStats(S)).sort((a, b) => b.pts - a.pts);
+  $("f_motm").innerHTML = MST.map((p, i) => "<option value='" + i + "'>" + esc(p.name + " (" + p.team + ") - " + p.runs + " runs, " + p.wk + " wkts") + "</option>").join("");
+  const k = S.motm ? MST.findIndex(p => p.team === S.motm.team && p.name === S.motm.name) : 0;
+  $("f_motm").value = Math.max(k, 0); $("f_final").checked = !!S.final;
+  $("fm").showModal();
+}
+$("f_save").onclick = async () => {
+  const p = MST[+$("f_motm").value]; if (!p) return alert("No player stats to choose from.");
+  CUR = await getCurTour();
+  S.motm = { team: p.team, name: p.name }; S.final = $("f_final").checked; S.archId = S.archId || Date.now(); S.tid = S.tid || CUR;
+  const rec = { id: S.archId, tid: S.tid, date: new Date().toISOString(), S, motm: S.motm, final: S.final, outcome: outcome(S) };
+  const all = JSON.parse(localStorage.getItem(MK) || "{}"); all[rec.id] = rec; localStorage.setItem(MK, JSON.stringify(all));
+  if (DB_URL) { try { await fetch(DB_URL + "/matches/" + rec.id + ".json", { method: "PUT", body: JSON.stringify(rec) }); } catch (e) { alert("Saved on this device only. Check the internet connection."); } }
+  await save(S); $("fm").close(); render();
+};
+$("f_cancel").onclick = () => $("fm").close();
+$("fin").onclick = () => { if (S) openFin(); };
+$("rep").onclick = () => window.open("report.html", "_blank");
+
+loadTeams(); showTour();
+load().then(s => { S = norm(s); if (S) { setBpo(S); render(); } });
+</script>
+</body>
+</html>

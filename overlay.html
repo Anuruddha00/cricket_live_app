@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Overlay</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#0f1f1a; --panel:#18302a; --grass:#3fa66b; --amber:#f2b134; --red:#e5484d; --text:#eef3ef; --dim:#9db3a9; }
+  html, body { margin:0; background:transparent; overflow:hidden; font-family:"Barlow Condensed","Arial Narrow",sans-serif; color:var(--text); }
+  #bar { position:fixed; left:40px; bottom:40px; display:none; box-shadow:0 6px 24px rgba(0,0,0,.35); }
+  .main { display:flex; align-items:stretch; height:84px; }
+  .team { background:var(--accent,var(--grass)); color:var(--onaccent,#06140d); padding:0 22px; display:flex; align-items:center; font-size:34px; font-weight:700; }
+  .score { background:var(--ink); padding:0 24px; display:flex; align-items:baseline; gap:14px; }
+  .score b { font-size:62px; line-height:84px; font-weight:700; }
+  .score span { font-size:28px; color:var(--dim); }
+  .bats, .bowl { background:var(--panel); padding:10px 22px; display:flex; flex-direction:column; justify-content:center; font-size:28px; line-height:30px; min-width:250px; }
+  .bats i, .bowl i { font-style:normal; color:var(--dim); }
+  .bats .on::before { content:"\25B6 "; color:var(--amber); font-size:18px; }
+  .sub { background:var(--ink); display:flex; align-items:center; gap:10px; padding:8px 18px; font-size:24px; color:var(--dim); min-height:44px; }
+  .sub .chip { background:var(--panel); color:var(--text); border-radius:999px; min-width:34px; padding:0 10px; text-align:center; font-weight:700; }
+  .sub .chip.w { background:var(--red); } .sub .chip.f { background:var(--amber); color:#241a00; }
+  .sub .push { margin-left:auto; color:var(--amber); font-weight:700; }
+  #flash { position:fixed; left:40px; bottom:190px; font-size:72px; font-weight:700; letter-spacing:.04em; padding:6px 34px; background:var(--panel); color:var(--text); opacity:0; transform:translateX(-60px); transition:opacity .25s, transform .35s cubic-bezier(.2,.9,.3,1); }
+  #flash.show { opacity:1; transform:none; }
+  #flash.four { background:var(--amber); color:#241a00; }
+  #flash.six { background:var(--accent,var(--grass)); color:var(--onaccent,#06140d); }
+  #flash.wicket, #flash.runout { background:var(--red); color:#fff; }
+/* ---- event animations (FOUR / SIX / WICKET / WIDE / NO BALL) ---- */
+.fx { position:fixed; inset:0; pointer-events:none; overflow:hidden; }
+.fx-glow { position:absolute; inset:0; opacity:0; animation:fxglow 2.8s ease-out forwards; }
+.four .fx-glow { box-shadow:inset 0 0 160px 30px rgba(242,177,52,.55); }
+.six .fx-glow { box-shadow:inset 0 0 240px 70px var(--accent); }
+.wicket .fx-glow, .runout .fx-glow { box-shadow:inset 0 0 240px 70px rgba(229,72,77,.8); animation-name:fxflash; }
+.wide .fx-glow, .noball .fx-glow { display:none; }
+@keyframes fxglow { 0% { opacity:0; } 12% { opacity:1; } 100% { opacity:0; } }
+@keyframes fxflash { 0%, 20%, 40% { opacity:1; } 10%, 30% { opacity:.15; } 100% { opacity:0; } }
+
+.fx-card { position:absolute; left:40px; bottom:200px; display:flex; align-items:stretch; overflow:hidden; opacity:0;
+  filter:drop-shadow(0 10px 24px rgba(0,0,0,.45)); animation:fxcard 2.8s cubic-bezier(.2,.9,.3,1) forwards; }
+.fx-card::after { content:""; position:absolute; inset:0; background:linear-gradient(100deg, transparent 35%, rgba(255,255,255,.55) 50%, transparent 65%);
+  transform:translateX(-130%); animation:fxshine 1s .5s forwards; }
+@keyframes fxcard { 0% { transform:translateX(-120%) skewX(-12deg); opacity:0; } 14% { transform:none; opacity:1; } 20% { transform:scale(1.06); } 26% { transform:scale(1); }
+  86% { opacity:1; transform:none; } 100% { transform:translateX(-50px); opacity:0; } }
+@keyframes fxshine { to { transform:translateX(130%); } }
+
+.fx-num { font-size:150px; line-height:150px; font-weight:700; padding:0 32px; background:var(--amber); color:#241a00; }
+.fx-txt { background:var(--ink); padding:14px 36px; display:flex; flex-direction:column; justify-content:center; }
+.fx-txt span { font-size:84px; line-height:84px; font-weight:700; letter-spacing:.08em; }
+.fx-txt small { font-size:34px; color:var(--dim); margin-top:6px; }
+
+.six .fx-num { background:var(--accent); color:var(--onaccent); font-size:190px; line-height:190px; animation:fxpop .6s .2s both cubic-bezier(.2,1.6,.4,1); }
+@keyframes fxpop { from { transform:scale(.2) rotate(-14deg); } to { transform:none; } }
+.six .fx-txt span { font-size:110px; line-height:110px; }
+
+.wicket .fx-card, .runout .fx-card { animation-name:fxslam; }
+.wicket .fx-num, .runout .fx-num { background:var(--red); color:#fff; }
+@keyframes fxslam { 0% { transform:scale(3); opacity:0; } 12% { transform:scale(1); opacity:1; } 16% { transform:translateX(-16px); } 20% { transform:translateX(16px); }
+  24% { transform:translateX(-9px); } 28% { transform:translateX(9px); } 32% { transform:none; } 86% { opacity:1; } 100% { opacity:0; transform:translateY(20px); } }
+
+.wide .fx-num, .noball .fx-num { display:none; }
+.wide .fx-txt span, .noball .fx-txt span { font-size:56px; line-height:56px; }
+
+.fx-rays { position:absolute; left:-640px; top:-80px; width:1800px; height:1800px; border-radius:50%; opacity:0;
+  background:repeating-conic-gradient(rgba(255,255,255,.16) 0 6deg, transparent 6deg 18deg);
+  -webkit-mask-image:radial-gradient(circle, #000 15%, transparent 62%); mask-image:radial-gradient(circle, #000 15%, transparent 62%);
+  animation:fxrays 2.8s linear forwards; }
+@keyframes fxrays { 0% { opacity:0; transform:rotate(0) scale(.4); } 15% { opacity:1; } 100% { opacity:0; transform:rotate(60deg) scale(1.1); } }
+
+.fx-c { position:absolute; bottom:-30px; left:var(--x); width:var(--s); height:calc(var(--s) * 1.6); background:var(--col); opacity:0;
+  animation:fxc var(--d) var(--dl) cubic-bezier(.2,.7,.3,1) forwards; }
+@keyframes fxc { 0% { opacity:1; transform:translate(0, 0) rotate(0); } 100% { opacity:0; transform:translate(var(--dx), var(--h)) rotate(var(--r)); } }
+</style>
+</head>
+<body>
+<div id="fx"></div>
+<div id="bar"></div>
+<script src="core.js"></script>
+<script>
+let S = null, seen = null, ft;
+const lum = h => { const n = parseInt(h.slice(1), 16); return 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255); };
+const esc = x => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const FX = { FOUR: ["four", "4"], SIX: ["six", "6"], WICKET: ["wicket", "W"], "RUN OUT": ["runout", "W"], WIDE: ["wide", ""], "NO BALL": ["noball", ""] };
+const PAL = ["#f2b134", "#ffffff", "var(--accent)", "#ffd978"];
+
+// Full-screen celebration: edge glow, rays (six), confetti, and a sliding card with the batter's name.
+function showFx(e) {
+  const [type, num] = FX[e.text];
+  let s = (e.n % 1000) + 7; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  let bits = "";
+  for (let i = 0, n = type === "six" ? 40 : type === "four" ? 16 : 0; i < n; i++) {
+    bits += "<i class='fx-c' style='--x:" + rnd() * 70 + "%;--s:" + (8 + rnd() * 12) + "px;--d:" + (1.4 + rnd() * 1.2) + "s;--dl:" + rnd() * 0.5 + "s;--dx:" +
+      (rnd() - 0.3) * 600 + "px;--h:" + -(500 + rnd() * 500) + "px;--r:" + rnd() * 720 + "deg;--col:" + PAL[Math.floor(rnd() * PAL.length)] + "'></i>";
+  }
+  const who = e.who ? "<small>" + esc(e.who) + " " + e.r + " (" + e.b + ")</small>" : "";
+  const el = document.getElementById("fx");
+  el.innerHTML = "<div class='fx " + type + "'><div class='fx-glow'></div>" + (type === "six" ? "<div class='fx-rays'></div>" : "") + bits +
+    "<div class='fx-card'>" + (num ? "<div class='fx-num'>" + num + "</div>" : "") + "<div class='fx-txt'><span>" + e.text + "</span>" + who + "</div></div></div>";
+  clearTimeout(ft); ft = setTimeout(() => { el.innerHTML = ""; }, 3200);
+}
+
+function flash(m) {
+  const e = m.evt;
+  if (seen === null || e.n <= seen) { seen = e.n; return; }   // first load, or after an undo
+  seen = e.n;
+  if (!e.text) return;
+  showFx(e);
+}
+const bar = document.getElementById("bar");
+
+function draw() {
+  if (!S) { bar.innerHTML = "<div class='sub'>Waiting for match data" + (DB_URL ? "" : " (DB_URL is empty in core.js)") + "</div>"; bar.style.display = "block"; return; }
+  const m = summary(S), c = m.c;
+  document.documentElement.style.setProperty("--accent", m.color);
+  document.documentElement.style.setProperty("--onaccent", lum(m.color) > 150 ? "#06140d" : "#ffffff");
+  flash(m);
+  const bt = (n, on) => n ? "<div class='" + (on ? "on" : "") + "'>" + n + " <b>" + c.bat[n].r + "</b> <i>(" + c.bat[n].b + ")</i></div>" : "<div>&nbsp;</div>";
+  const bo = c.bw && c.bowl[c.bw] ? c.bowl[c.bw] : { b: 0, r: 0, w: 0 };
+  const chips = c.over.map(b => "<span class='chip" + (b === "W" ? " w" : (b === "4" || b === "6") ? " f" : "") + "'>" + b + "</span>").join("");
+  const info = m.result ? m.result : m.target ? "Need " + m.need + " from " + m.left + " balls · RRR " + m.rrr : "CRR " + m.crr;
+  bar.innerHTML =
+    "<div class='main'><div class='team'>" + m.team + "</div>" +
+    "<div class='score'><b>" + c.runs + "-" + c.w + "</b><span>" + overs(c.balls) + " ov</span></div>" +
+    "<div class='bats'>" + bt(c.st, true) + bt(c.non, false) + "</div>" +
+    "<div class='bowl'><div>" + (c.bw || "") + "</div><div><i>" + overs(bo.b) + " ov · " + bo.r + " runs · " + bo.w + " wkts</i></div></div></div>" +
+    "<div class='sub'>This over " + chips + "<span style='margin-left:18px'>Partnership <b style='color:var(--text)'>" + c.pr + "</b> (" + c.pb + ")</span><span class='push'>" + info + "</span></div>";
+  bar.style.display = "block";
+}
+
+async function refresh() {
+  const s = await load();
+  if (s) s.inns.forEach(i => i.ev = i.ev || []);
+  S = s; if (!s) seen = null;   // forget banner history when the match is cleared
+  draw();
+}
+
+refresh();
+setInterval(refresh, 2000);            // simple polling keeps it reliable in OBS
+window.addEventListener("storage", refresh);
+if (DB_URL) { try { new EventSource(DB_URL + "/match.json").onmessage = refresh; } catch (e) {} }
+</script>
+</body>
+</html>

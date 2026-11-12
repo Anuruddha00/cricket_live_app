@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tournament report</title>
+<style>
+  :root { --ink:#0f1f1a; --panel:#18302a; --line:#2b4a41; --grass:#3fa66b; --amber:#f2b134; --text:#eef3ef; --dim:#9db3a9; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:20px; background:var(--ink); color:var(--text); font:16px/1.45 system-ui, sans-serif; max-width:980px; margin-inline:auto; }
+  h1 { margin:0; } h2 { margin:28px 0 10px; color:var(--amber); font-size:1.15rem; letter-spacing:.04em; text-transform:uppercase; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0; }
+  button, input, select { font:inherit; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  button { cursor:pointer; } button:focus-visible, input:focus-visible, select:focus-visible { outline:3px solid var(--amber); outline-offset:2px; }
+  .primary { background:var(--grass); color:#06140d; border-color:var(--grass); font-weight:700; }
+  #tname { font-size:1.6rem; font-weight:700; width:100%; background:transparent; border-color:transparent; padding:4px 0; }
+  .dim { color:var(--dim); }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+  .card { background:var(--panel); border-radius:14px; padding:14px 16px; border-left:5px solid var(--amber); }
+  .card small { color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
+  .card b { display:block; font-size:1.4rem; margin:4px 0 2px; }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; min-width:520px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:600; font-size:.85rem; text-transform:uppercase; }
+  @media print {
+    :root { --ink:#fff; --panel:#f3f3f3; --line:#ccc; --text:#111; --dim:#555; --amber:#8a5a00; }
+    .bar { display:none; } body { padding:0; } #tname { border:none; }
+  }
+</style>
+</head>
+<body>
+<input id="tname" value="Cricket Tournament" aria-label="Tournament name">
+<div class="dim" id="sub"></div>
+<div class="bar">
+  <select id="tsel" aria-label="Tournament"></select>
+  <button class="primary" id="dl">Download CSV</button>
+  <button id="pr">Print / Save as PDF</button>
+  <button id="rf">Refresh</button>
+  <button id="nt">New tournament</button>
+  <button id="clr">Delete this tournament</button>
+</div>
+<div id="out">Loading...</div>
+
+<script src="core.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = x => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const MK = "cricket_matches";
+let RECS = [], D = null, TN = null, TOURS = [], SEL = null;
+
+async function loadAll(keepSel) {
+  TOURS = await getTours();
+  const cur = await getCurTour();
+  if (!keepSel || !TOURS.some(t => t.id === SEL)) SEL = TOURS.some(t => t.id === cur) ? cur : TOURS[0].id;
+  $("tsel").innerHTML = TOURS.map(t => "<option value='" + t.id + "'>" + esc(t.name) + (t.id === cur ? " (current)" : "") + "</option>").join("");
+  $("tsel").value = SEL;
+  $("tname").value = TOURS.find(t => t.id === SEL).name;
+  let m = await dbGet("matches");
+  if (!DB_URL) m = JSON.parse(localStorage.getItem(MK) || "{}");
+  RECS = Object.values(m || {}).filter(x => x && (x.tid || "t0") === SEL).sort((p, q) => p.id - q.id);
+}
+
+function build() {
+  TN = tournament(RECS);
+  const sr = (r, b) => b ? (r * 100 / b).toFixed(1) : "-";
+  const P = TN.players;
+  return {
+    bat: P.filter(p => p.balls || p.runs).sort((a, b) => b.runs - a.runs || a.balls - b.balls).map(p => [p.name, p.team, p.mat, p.runs, p.balls, sr(p.runs, p.balls), p.hs, p.f, p.x]),
+    bowl: P.filter(p => p.bb).sort((a, b) => b.wk - a.wk || a.br - b.br).map(p => [p.name, p.team, p.wk, p.bb, p.br, p.ov ? (p.br / p.ov).toFixed(2) : "-", p.bw ? p.bw + "/" + p.bwr : "-"]),
+    std: TN.teams.map(t => [t.name, t.p, t.w, t.l, t.t, t.w * 2 + t.t, t.nrr]).sort((a, b) => b[5] - a[5] || b[6] - a[6]).map(x => x.slice(0, 6).concat([(x[6] >= 0 ? "+" : "") + x[6].toFixed(3)])),
+    res: RECS.map(r => [new Date(r.date).toLocaleDateString(), r.S.a + " v " + r.S.b + (r.final ? " (FINAL)" : ""), r.outcome ? r.outcome.text : "", r.motm ? r.motm.name + " (" + r.motm.team + ")" : ""])
+  };
+}
+const H = {
+  bat: ["Player", "Team", "Mat", "Runs", "Balls", "SR", "HS", "4s", "6s"],
+  bowl: ["Player", "Team", "Wkts", "Balls", "Runs", "Econ", "Best"],
+  std: ["Team", "P", "W", "L", "T", "Pts", "NRR"],
+  res: ["Date", "Match", "Result", "Man of the match"]
+};
+const table = (h, rows) => rows.length ? "<div class='scroll'><table><thead><tr>" + h.map(x => "<th>" + x + "</th>").join("") + "</tr></thead><tbody>" + rows.map(r => "<tr>" + r.map(c => "<td>" + esc(c) + "</td>").join("") + "</tr>").join("") + "</tbody></table></div>" : "<p class='dim'>No data yet.</p>";
+const card = (t, a, b) => "<div class='card'><small>" + t + "</small><b>" + esc(a) + "</b><span class='dim'>" + esc(b) + "</span></div>";
+
+function awardList() {
+  const A = TN.awards, pl = p => p ? p.team + " · " + p.runs + " runs, " + p.wk + " wkts" : "";
+  return [
+    ["Man of the series", A.series && A.series.pts > 0 ? A.series.name : "-", pl(A.series)],
+    ["Most runs", A.runs && A.runs.runs > 0 ? A.runs.name : "-", A.runs ? A.runs.team + " · " + A.runs.runs + " runs (HS " + A.runs.hs + ")" : ""],
+    ["Most wickets", A.wkts && A.wkts.wk > 0 ? A.wkts.name : "-", A.wkts ? A.wkts.team + " · " + A.wkts.wk + " wkts" : ""],
+    ["Man of the final", A.final ? A.final.motm.name : "Not decided", A.final ? A.final.motm.team + " · " + A.final.match + (A.final.text ? " · " + A.final.text : "") : "Tick \"final match\" when saving it"]
+  ];
+}
+
+function render() {
+  D = build();
+  $("sub").textContent = RECS.length + " match" + (RECS.length === 1 ? "" : "es") + " · generated " + new Date().toLocaleDateString();
+  if (!RECS.length) { $("out").innerHTML = "<p class='dim'>No saved matches yet. Finish a match in the scorer and press Save match.</p>"; return; }
+  $("out").innerHTML =
+    "<h2>Awards</h2><div class='cards'>" + awardList().map(a => card(a[0], a[1], a[2])).join("") + "</div>" +
+    "<p class='dim'>Man of the series = most points, with 1 point per run and 25 per wicket.</p>" +
+    "<h2>Standings</h2>" + table(H.std, D.std) + "<p class='dim'>Ranked by points, then net run rate (NRR). NRR = runs scored per over minus runs conceded per over. A team that is all out counts as having faced its full overs.</p>" +
+    "<h2>Batting</h2>" + table(H.bat, D.bat) +
+    "<h2>Bowling</h2>" + table(H.bowl, D.bowl) +
+    "<h2>Match results</h2>" + table(H.res, D.res);
+}
+
+function csv() {
+  const q = v => '"' + String(v).replace(/"/g, '""') + '"', out = [];
+  const add = (t, h, rows) => { out.push(q(t)); out.push(h.map(q).join(",")); rows.forEach(r => out.push(r.map(q).join(","))); out.push(""); };
+  out.push(q($("tname").value)); out.push("");
+  add("Awards", ["Award", "Player", "Details"], awardList());
+  add("Standings", H.std, D.std); add("Batting", H.bat, D.bat); add("Bowling", H.bowl, D.bowl); add("Match results", H.res, D.res);
+  return out.join("\r\n");
+}
+
+$("dl").onclick = () => {
+  if (!D) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["\ufeff" + csv()], { type: "text/csv" }));
+  a.download = ($("tname").value || "tournament").replace(/[^\w-]+/g, "_") + "_report.csv";
+  document.body.appendChild(a); a.click(); a.remove();
+};
+$("pr").onclick = () => window.print();
+$("rf").onclick = async () => { await loadAll(true); render(); };
+$("tsel").onchange = async () => { SEL = $("tsel").value; await loadAll(true); render(); };
+$("tname").onchange = async () => {
+  const t = TOURS.find(x => x.id === SEL); t.name = $("tname").value.trim() || t.name;
+  await putTour(t); await loadAll(true); render();
+};
+$("nt").onclick = async () => {
+  const n = (prompt("Name of the new tournament") || "").trim(); if (!n) return;
+  if (!confirm("Start \"" + n + "\"? The live match on the scorer and overlay will be cleared. Saved matches stay in their tournament.")) return;
+  const clearTeams = confirm("Also clear all registered teams and squads?\n\nOK = clear them\nCancel = keep the teams");
+  await startTour(n); await resetDetails(clearTeams); await loadAll(); render();
+};
+$("clr").onclick = async () => {
+  const t = TOURS.find(x => x.id === SEL);
+  if (!confirm("Delete \"" + t.name + "\" and all its saved matches? Download the CSV first if you need it. This cannot be undone.")) return;
+  const ids = RECS.map(x => x.id), all = JSON.parse(localStorage.getItem(MK) || "{}");
+  ids.forEach(id => delete all[id]); localStorage.setItem(MK, JSON.stringify(all));
+  const l = JSON.parse(localStorage.getItem(TOURS_KEY) || "{}"); delete l[SEL]; localStorage.setItem(TOURS_KEY, JSON.stringify(l));
+  if (DB_URL) {
+    for (const id of ids) { try { await fetch(DB_URL + "/matches/" + id + ".json", { method: "DELETE" }); } catch (e) {} }
+    try { await fetch(DB_URL + "/tours/" + SEL + ".json", { method: "DELETE" }); } catch (e) {}
+  }
+  if (SEL === await getCurTour()) { localStorage.removeItem(CUR_KEY); await dbPut("currentTour", "t0"); }
+  await loadAll(); render();
+};
+loadAll().then(render);
+</script>
+</body>
+</html>
